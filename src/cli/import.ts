@@ -25,8 +25,14 @@ async function main() {
     if (values.directory) {
       const store = new FullStore(values.directory);
       const catalog = await store.catalog();
+      // Index the reader snapshots once per pass instead of probing a missing
+      // file for every listed chapter in a large metadata-only archive.
+      const readerFiles = await store.readerFiles();
       for (const item of catalog.bundles) {
-        yield await store.hydrate((await store.bundle(item.comic)) ?? item);
+        yield await store.hydrate(
+          (await store.bundle(item.comic)) ?? item,
+          readerFiles,
+        );
       }
     } else {
       const dataset = await readDataset(datasetPath(values.input));

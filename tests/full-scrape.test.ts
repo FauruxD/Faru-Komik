@@ -72,6 +72,18 @@ test("full archive checkpoints readers individually, hydrates for import, and lo
     assert.equal((await store.catalog()).bundles.length, 1);
     const restored = await store.hydrate((await store.bundle(fixture.comic))!);
     assert.deepEqual(restored, fixture);
+    const readerFiles = await store.readerFiles();
+    assert.deepEqual([...readerFiles], [`${chapter.id}.json`]);
+    const readChapter = store.chapter.bind(store);
+    let readerFileReads = 0;
+    store.chapter = async (candidate) => {
+      readerFileReads++;
+      return readChapter(candidate);
+    };
+    assert.deepEqual(await store.hydrate(metadata, new Set()), metadata);
+    assert.equal(readerFileReads, 0);
+    assert.deepEqual(await store.hydrate(metadata, readerFiles), fixture);
+    assert.equal(readerFileReads, 1);
     assert.equal(
       JSON.parse(
         await readFile(join(dir, "comics", `${fixture.comic.id}.json`), "utf8"),

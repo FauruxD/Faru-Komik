@@ -1,4 +1,4 @@
-import { readFile, mkdir, open, unlink } from "node:fs/promises";
+import { readFile, readdir, mkdir, open, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import {
@@ -152,10 +152,30 @@ export class FullStore {
     }
   }
 
-  async hydrate(bundle: ComicBundle): Promise<ComicBundle> {
+  async readerFiles(): Promise<ReadonlySet<string>> {
+    try {
+      return new Set(
+        (await readdir(join(this.root, "chapters"), { withFileTypes: true }))
+          .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+          .map((entry) => entry.name),
+      );
+    } catch (error) {
+      if (missingFile(error)) return new Set();
+      throw error;
+    }
+  }
+
+  async hydrate(
+    bundle: ComicBundle,
+    readerFiles?: ReadonlySet<string>,
+  ): Promise<ComicBundle> {
     const chapters: Chapter[] = [];
     for (const chapter of bundle.chapters)
-      chapters.push((await this.chapter(chapter)) ?? chapter);
+      chapters.push(
+        readerFiles && !readerFiles.has(`${chapter.id}.json`)
+          ? chapter
+          : ((await this.chapter(chapter)) ?? chapter),
+      );
     return bundleSchema.parse({ ...bundle, chapters });
   }
 }
