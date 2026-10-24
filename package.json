@@ -31,6 +31,7 @@
     "robots-parser": "^3.0.1",
     "server-only": "0.0.1",
     "tailwindcss": "4.3.3",
+    "workflow": "5.2.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -46,5 +47,9 @@
     "tsx": "^4.23.15",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.0"
+  },
+  "overrides": {
+    "zod": "$zod",
+    "undici": "7.30.1"
   }
 }

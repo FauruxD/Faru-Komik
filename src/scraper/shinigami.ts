@@ -5,8 +5,8 @@ import {
   type Chapter,
   type Comic,
   type ComicBundle,
-} from "../data/schema.js";
-import type { HttpClient } from "./http.js";
+} from "../data/schema";
+import type { HttpClient } from "./http";
 
 export const WEBSITE = "https://11.shinigami.asia";
 export const API = "https://api.shngm.io";
@@ -226,22 +226,9 @@ export class ShinigamiScraper {
     const chapters = new Map<string, Chapter>();
     let complete = false;
     for (let page = 1; page <= options.chapterPages; page++) {
-      const query = new URLSearchParams({
-        page: String(page),
-        page_size: String(options.pageSize),
-        sort_by: "chapter_number",
-        sort_order: "asc",
-      });
-      const result = listEnvelope(sourceChapter).parse(
-        await this.http.json(
-          `${API}/v1/chapter/${comic.source_comic_id}/list?${query}`,
-        ),
-      );
-      if (result.meta.page !== page)
-        throw new Error("Source returned the wrong chapter page");
-      for (const item of result.data) {
-        const normalized = normalizeChapter(item, comic, at);
-        chapters.set(normalized.id, normalized);
+      const result = await this.chapterPage(comic, page, options.pageSize, at);
+      for (const chapter of result.chapters) {
+        chapters.set(chapter.id, chapter);
       }
       if (page >= result.meta.total_page) {
         complete = chapters.size === result.meta.total_record;
@@ -255,7 +242,7 @@ export class ShinigamiScraper {
           );
         break;
       }
-      if (result.data.length === 0)
+      if (result.chapters.length === 0)
         throw new Error("Unexpected empty chapter page");
       if (onPage)
         await onPage(
@@ -274,6 +261,33 @@ export class ShinigamiScraper {
       chapter_list_complete: complete,
       chapters: ordered,
     });
+  }
+
+  async chapterPage(
+    comic: Comic,
+    page: number,
+    pageSize = 100,
+    at = new Date().toISOString(),
+  ) {
+    const query = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+      sort_by: "chapter_number",
+      sort_order: "asc",
+    });
+    const result = listEnvelope(sourceChapter).parse(
+      await this.http.json(
+        `${API}/v1/chapter/${comic.source_comic_id}/list?${query}`,
+      ),
+    );
+    if (result.meta.page !== page)
+      throw new Error("Source returned the wrong chapter page");
+    if (result.data.length === 0 && page < result.meta.total_page)
+      throw new Error("Unexpected empty chapter page");
+    return {
+      meta: result.meta,
+      chapters: result.data.map((item) => normalizeChapter(item, comic, at)),
+    };
   }
 
   async reader(chapter: Chapter, sourceComicId: string): Promise<Chapter> {

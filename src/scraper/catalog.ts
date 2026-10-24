@@ -1,9 +1,9 @@
-import { comicSchema, type Comic } from "../data/schema.js";
+import { comicSchema, type Comic } from "../data/schema";
 import {
   normalizeComic,
   type ShinigamiScraper,
   type CatalogFilter,
-} from "./shinigami.js";
+} from "./shinigami";
 
 export interface CatalogResult {
   comics: Comic[];

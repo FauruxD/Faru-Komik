@@ -8,3 +8,5 @@ coverage/
 *.tmp
 *.tsbuildinfo
 .vercel/
+/.swc
+/src/app/.well-known/workflow/

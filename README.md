@@ -24,17 +24,51 @@ Hentikan server `npm start` sebelum membangun ulang dalam folder yang sama, lalu
 - `/baca/[id]`: gambar berurutan, navigasi chapter, pilihan latar gelap, dan lebar baca desktop.
 - `/koleksi`: bookmark dan riwayat di localStorage browser; belum ada sinkronisasi akun/perangkat.
 
-Query katalog dijalankan di Server Components dengan publishable key dan RLS baca publik. Modul database ditandai `server-only`; secret key hanya untuk importer. Fetch data memakai revalidasi 60 detik. Cover menggunakan optimasi gambar Next.js; gambar chapter memakai URL sumber secara langsung dengan lazy loading, tanpa mengunduh atau menyimpan ulang gambar di Supabase Storage.
+Query katalog dijalankan di Server Components dengan publishable key dan RLS baca publik. Modul database ditandai `server-only`; secret key hanya untuk importer dan worker cloud. Fetch data memakai revalidasi 60 detik. Cover menggunakan optimasi gambar Next.js; gambar chapter memakai URL sumber secara langsung dengan lazy loading, tanpa mengunduh atau menyimpan ulang gambar di Supabase Storage.
 
-Dataset lokal dan database tidak tersinkron otomatis. Metadata atau chapter yang sudah ada belum tentu memiliki manifest gambar. Reader menampilkan kondisi kosong yang jelas dan tautan sumber ketika halaman belum tersedia. Jalankan import snapshot untuk memperbarui database setelah scraping dilanjutkan.
+Worker cloud menulis langsung ke Supabase, terpisah dari arsip lokal. Metadata atau chapter yang sudah ada belum tentu memiliki manifest gambar. Reader menampilkan kondisi kosong yang jelas dan tautan sumber ketika halaman belum tersedia. Arsip lokal lama hanya masuk ke database melalui import snapshot manual.
 
 ## Deploy ke Vercel
 
-Impor repository ke Vercel menggunakan preset Next.js, Node.js 22+, build command `npm run build`. Tambahkan **hanya** `NEXT_PUBLIC_SUPABASE_URL` dan `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` untuk frontend. Jangan tambahkan secret importer ke variabel publik. Build memerlukan akses ke Supabase dan Google Fonts. Setelah mengganti environment variables, lakukan deploy ulang.
+Website produksi: [farucomics.vercel.app](https://farucomics.vercel.app/). Deploy melalui integrasi GitHub Vercel, preset Next.js, Node.js 22+ (produksi saat ini 24.x), dan build command `npm run build`. Tidak memerlukan Vercel CLI. Build memerlukan akses ke Supabase dan Google Fonts.
 
-Tidak ada scheduler scraper di Vercel. CLI scraping tetap berjalan di komputer/worker terpisah dan melanjutkan checkpoint setelah dijalankan ulang. Proyek belum dipublikasikan ke Vercel.
+Atur environment **Production** melalui dashboard Vercel:
 
-## Mulai
+| Variabel                               | Kegunaan                                                                                |
+| -------------------------------------- | --------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`             | URL proyek untuk frontend                                                               |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Key publik dengan RLS baca katalog                                                      |
+| `SUPABASE_URL`                         | URL proyek untuk worker; boleh sama dengan URL publik                                   |
+| `SUPABASE_SERVICE_ROLE_KEY`            | Key server Supabase (`sb_secret_…` atau legacy service role); simpan sebagai Sensitive  |
+| `CRON_SECRET`                          | Secret acak minimal 32 karakter untuk Cron dan kontrol worker; simpan sebagai Sensitive |
+| `SCRAPER_DATABASE_LIMIT_MB`            | Batas ukuran seluruh database sebelum worker berhenti; default `400`                    |
+
+Jangan beri awalan `NEXT_PUBLIC_` pada key server atau secret Cron. Aktifkan **Automatically expose System Environment Variables** pada pengaturan proyek agar Workflow mendapat identitas deployment. Setelah mengubah environment, deploy ulang. Jalankan kedua migration SQL sebelum memulai worker; lihat bagian Supabase di bawah.
+
+## Scraping di Vercel
+
+Vercel Workflow menjalankan pekerjaan bertahap dan menyimpan checkpoint di tabel privat `scrape_jobs` di Supabase. Tidak ada scraping pada build atau request pembaca. Menjalankan frontend lokal juga tidak memulai worker. Komputer boleh dimatikan setelah pekerjaan dimulai di deployment produksi.
+
+Urutan pengambilan adalah discovery seluruh katalog, pelengkapan daftar chapter, lalu URL gambar seluruh chapter yang belum memiliki manifest. Worker memproses request sumber berurutan dengan jeda 1,5 detik. Setiap halaman daftar chapter dan manifest chapter dikomit atomik bersama checkpoint; upsert dan lease mencegah duplikasi atau dua worker menulis bersamaan. Satu batch mengambil maksimal 5 halaman daftar chapter atau 40 manifest; Workflow berikutnya melanjutkan checkpoint setelah 100 batch.
+
+`vercel.json` menjadwalkan Cron harian pukul **08.00 WIB** (`0 1 * * *`, UTC; waktu eksekusi Hobby bisa bergeser). Cron memulai scan atau memulihkan Workflow yang berakhir sebelum antrean selesai. Ketika scan lengkap, scan harian berikutnya memeriksa pembaruan katalog. Job yang dijeda atau diblokir tidak dimulai ulang otomatis oleh Cron.
+
+API kontrol hanya menerima `Authorization: Bearer <CRON_SECRET>`:
+
+| Request                                              | Tindakan                                                          |
+| ---------------------------------------------------- | ----------------------------------------------------------------- |
+| `GET /api/scraper`                                   | Status, fase, checkpoint, dan kegagalan terakhir                  |
+| `POST /api/scraper` dengan JSON `{"action":"start"}` | Memulai atau melanjutkan checkpoint; tidak menggandakan run aktif |
+| `POST /api/scraper` dengan JSON `{"action":"pause"}` | Menjeda dan mencabut lease penulisan worker aktif                 |
+| `GET /api/cron/scrape`                               | Endpoint Cron Vercel; secret yang sama                            |
+
+Gunakan HTTPS produksi untuk kontrol. Jangan memasukkan secret ke query string, source Git, atau browser publik. Respons tanpa secret adalah `401`.
+
+401/403, challenge, atau larangan robots dari sumber memblokir job. Tiga kegagalan unit beruntun menjedanya; checkpoint sukses tetap tersimpan. Batas database juga menjeda job sebelum penyimpanan habis. Selesaikan penyebabnya sebelum melanjutkan secara manual. Jika daftar chapter sumber berubah di tengah paginasi dan hitungan tidak cocok, worker berhenti dengan error, bukan menandai daftar parsial sebagai lengkap.
+
+Seluruh URL gambar bisa membutuhkan ruang database dan kuota Workflow/Functions yang besar. Batas 400 MB tidak menjamin semua manifest muat pada paket gratis; tidak ada peningkatan paket otomatis. Kolom `source_requests` menghitung unit pengambilan yang telah dikomit, bukan seluruh request HTTP termasuk robots dan retry. File gambar tidak diunduh.
+
+## CLI lokal opsional (tidak dijalankan otomatis)
 
 Gunakan Node.js 22+.
 
@@ -97,26 +131,27 @@ Endpoint katalog membatasi hitungan hasil ke 1.000, sedangkan facet format pada 
 
 Semua chapter yang belum memiliki manifest masuk antrean, tanpa batas sampel. Request tetap berurutan dan memakai jeda. Ribuan atau puluhan ribu chapter membutuhkan waktu lama; waktu minimum di progress hanya menghitung jeda request, belum jaringan/retry. Saat dihentikan, jalankan ulang perintah yang sama untuk melanjutkan dari checkpoint. Hanya satu worker diizinkan per direktori. Tiga kegagalan unit beruntun menghentikan worker; 401/403, robots denial, challenge, atau cooldown panjang menghentikannya langsung. Tidak ada pengelakan kontrol akses.
 
-Pada Windows, worker background yang diluncurkan Sol menulis `worker.log` dan `worker.error.log` dalam direktori tersebut. Komputer harus tetap menyala dan terkoneksi; worker ini belum merupakan job cloud. Jangan jalankan importer saat proses scraping masih mengubah arsip jika kamu membutuhkan satu snapshot konsisten untuk publikasi.
+Bagian CLI ini mendokumentasikan pipeline lokal lama. Jika dijalankan manual, komputer harus tetap menyala dan terkoneksi; arsip tersebut terpisah dari checkpoint cloud. Jangan menjalankan pipeline lokal untuk melanjutkan job Vercel. Jangan jalankan importer saat proses scraping masih mengubah arsip jika kamu membutuhkan satu snapshot konsisten untuk publikasi.
 
 ## Menghubungkan Supabase
 
 1. Buat proyek Supabase.
-2. Jalankan isi `supabase/migrations/202610230001_catalog.sql` melalui SQL Editor, atau pakai Supabase CLI dan `supabase db push` setelah proyek ditautkan.
+2. Jalankan migration `supabase/migrations/202610230001_catalog.sql`, lalu `supabase/migrations/20261024034453_cloud_scraper.sql` melalui SQL Editor. Migration hanya dijalankan sekali; pada proyek Supabase yang sudah dikonfigurasi, periksa riwayat migration sebelum menjalankannya kembali.
 3. Salin `.env.example` menjadi `.env.local`; isi `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY`.
 4. Jalankan `npm run import:supabase`.
 
-Service role key hanya dipakai proses import di server/lokal. Jangan masukkan ke bundle browser atau variabel berawalan `NEXT_PUBLIC_`.
+Service role key hanya dipakai importer dan worker server. Jangan masukkan ke bundle browser atau variabel berawalan `NEXT_PUBLIC_`. Import snapshot lokal pada langkah 4 bersifat opsional ketika memakai worker cloud.
 
 Import memakai RPC `import_comic_bundle`: satu komik + chapter + halaman masuk dalam satu transaksi. ID deterministik dan upsert mencegah duplikasi saat diulang. Import checkpoint yang lebih lama tidak menimpa data lebih baru. Daftar chapter parsial tidak menghapus data lama; manifest gambar hanya diganti jika data chapter tersebut berhasil diambil. Tidak ada penghapusan komik otomatis ketika suatu judul menghilang dari katalog sumber.
 
 Tabel:
 
-| Tabel           | Isi                                                                                            |
-| --------------- | ---------------------------------------------------------------------------------------------- |
-| `comics`        | Judul, slug, sinopsis, cover, format, genre, penulis, status mentah sumber, waktu sinkronisasi |
-| `chapters`      | Relasi komik, nomor desimal, ID sumber, tanggal rilis, status pengambilan halaman              |
-| `chapter_pages` | URL gambar dan posisi baca berurutan                                                           |
+| Tabel           | Isi                                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| `comics`        | Judul, slug, sinopsis, cover, format, genre, penulis, status mentah sumber, waktu sinkronisasi       |
+| `chapters`      | Relasi komik, nomor desimal, ID sumber, tanggal rilis, status pengambilan halaman                    |
+| `chapter_pages` | URL gambar dan posisi baca berurutan                                                                 |
+| `scrape_jobs`   | Checkpoint cloud, status, lease, identitas Workflow, dan kegagalan terakhir; akses service role saja |
 
 RLS aktif: pengunjung dapat membaca katalog; tulis tabel dan RPC hanya diberikan kepada service role. Genre, penulis, dan artis berupa array karena tahap ini hanya membutuhkan filter dan tampilan metadata. Kode status sumber disimpan apa adanya; belum diterjemahkan menjadi ongoing/completed tanpa verifikasi pemetaan sumber.
 
@@ -135,6 +170,6 @@ URL gambar tetap bergantung pada server sumber dan mungkin berubah atau menolak 
 
 ## Arsitektur deployment
 
-Scraper berjalan sebagai CLI di luar request pembaca. Website Next.js membaca Supabase, sehingga setiap pengunjung tidak memicu request scraping dan proses panjang tidak bergantung pada batas waktu fungsi Vercel. Tidak ada scheduler atau deploy otomatis pada tahap ini.
+Website Next.js membaca Supabase, sedangkan Workflow Vercel mengambil data secara bertahap di region `icn1`, dekat proyek Supabase Seoul. Setiap langkah berdurasi terbatas; state dan checkpoint berada di Supabase sehingga proses panjang tidak bergantung pada satu request HTTP. Route kontrol hanya meluncurkan Workflow, dan Cron harian melakukan pemulihan atau scan berikutnya. Integrasi GitHub Vercel menangani deploy dari Git.
 
-Pengujian otomatis mencakup parser, paginasi, penolakan akses, retry, dan skema/RPC PostgreSQL lokal menggunakan PGlite. Frontend diverifikasi di browser terhadap proyek Supabase yang dikonfigurasi, dengan screenshot dan laporan viewport lokal di `data/frontend-qa/` (diabaikan Git).
+Pengujian otomatis memakai fixture tanpa scraping sumber: parser, paginasi, penolakan akses, retry, bearer authorization, checkpoint cloud, lease/fencing, rollback transaksi, dan penolakan akses publik ke job menggunakan PostgreSQL lokal PGlite. Frontend sebelumnya diverifikasi terhadap Supabase di browser desktop dan mobile; perubahan worker tidak mengubah komponen UI. Hasil build dan tes tidak membuktikan akses jaringan dari Vercel ke sumber: periksa run produksi dan checkpoint setelah environment terpasang.

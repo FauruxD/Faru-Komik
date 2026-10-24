@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
+import { withWorkflow } from "workflow/next";
 
 const config: NextConfig = {
   poweredByHeader: false,
+  serverExternalPackages: ["robots-parser"],
   turbopack: { root: process.cwd() },
   experimental: {
     optimizePackageImports: ["@cloudflare/kumo", "@phosphor-icons/react"],
@@ -16,4 +18,4 @@ const config: NextConfig = {
     ],
   },
 };
-export default config;
+export default withWorkflow(config);

@@ -4,7 +4,15 @@ import reactHooks from "eslint-plugin-react-hooks";
 import jsxA11y from "eslint-plugin-jsx-a11y";
 
 export default tseslint.config(
-  { ignores: [".next/**", "data/**", "node_modules/**", "next-env.d.ts"] },
+  {
+    ignores: [
+      ".next/**",
+      "data/**",
+      "node_modules/**",
+      "next-env.d.ts",
+      "src/app/.well-known/workflow/**",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
