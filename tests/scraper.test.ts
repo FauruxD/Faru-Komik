@@ -152,13 +152,15 @@ test("chapter pagination deduplicates and marks capped lists incomplete", async 
   assert.equal(requests.filter((path) => path === "/robots.txt").length, 1);
 });
 
-test("403 and robots prohibitions stop without retries or protected requests", async () => {
+test("data 403 and robots prohibitions stop without retries or protected requests", async () => {
   let calls = 0;
   const denied = new HttpClient({
     delayMs: 0,
     log: () => {},
-    fetcher: async () => {
+    fetcher: async (input) => {
       calls++;
+      if (String(input).endsWith("/robots.txt"))
+        return new Response("", { status: 404 });
       return new Response("Forbidden", { status: 403 });
     },
   });
@@ -166,7 +168,7 @@ test("403 and robots prohibitions stop without retries or protected requests", a
     denied.json("https://api.shngm.io/v1/manga/list"),
     AccessError,
   );
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   calls = 0;
   const robots = new HttpClient({
     delayMs: 0,
@@ -181,6 +183,40 @@ test("403 and robots prohibitions stop without retries or protected requests", a
     AccessError,
   );
   assert.equal(calls, 1);
+});
+
+test("unavailable robots rules permit public data while robots outages fail closed", async () => {
+  for (const status of [401, 403, 404, 410]) {
+    const urls: string[] = [];
+    const http = new HttpClient({
+      delayMs: 0,
+      log: () => {},
+      fetcher: async (input) => {
+        urls.push(String(input));
+        return String(input).endsWith("/robots.txt")
+          ? new Response("Unavailable", { status })
+          : json({ ok: true });
+      },
+    });
+    assert.deepEqual(await http.json("https://api.shngm.io/v1/manga/list"), {
+      ok: true,
+    });
+    assert.equal(urls.length, 2);
+  }
+  for (const status of [429, 503]) {
+    const urls: string[] = [];
+    const http = new HttpClient({
+      delayMs: 0,
+      retries: 0,
+      log: () => {},
+      fetcher: async (input) => {
+        urls.push(String(input));
+        return new Response("Unavailable", { status });
+      },
+    });
+    await assert.rejects(http.json("https://api.shngm.io/v1/manga/list"));
+    assert.deepEqual(urls, ["https://api.shngm.io/robots.txt"]);
+  }
 });
 
 test("API authorization failures stop after a successful robots check without retries", async () => {

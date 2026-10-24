@@ -51,7 +51,7 @@ Vercel Workflow menjalankan pekerjaan bertahap dan menyimpan checkpoint di tabel
 
 Urutan pengambilan adalah discovery seluruh katalog, pelengkapan daftar chapter, lalu URL gambar seluruh chapter yang belum memiliki manifest. Worker memproses request sumber berurutan dengan jeda 1,5 detik. Setiap halaman daftar chapter dan manifest chapter dikomit atomik bersama checkpoint; upsert dan lease mencegah duplikasi atau dua worker menulis bersamaan. Satu batch mengambil maksimal 5 halaman daftar chapter atau 40 manifest; Workflow berikutnya melanjutkan checkpoint setelah 100 batch.
 
-Worker mengakses `api.shngm.io` dan memeriksa `robots.txt` pada origin API tersebut. Tidak ada crawl halaman HTML `11.shinigami.asia`; kegagalan host website tidak dipakai untuk menyimpulkan akses API. Penolakan dari API, challenge, dan larangan robots API tetap menghentikan worker.
+Worker mengakses `api.shngm.io` dan memeriksa `robots.txt` pada origin API tersebut. Tidak ada crawl halaman HTML `11.shinigami.asia`; kegagalan host website tidak dipakai untuk menyimpulkan akses API. Sesuai RFC 9309, respons 4xx pada `robots.txt` berarti aturan tidak tersedia; 429 tetap menghentikan setelah retry dan error server/jaringan tidak mengizinkan pengambilan data. Respons 401/403 pada endpoint data, challenge, dan aturan `Disallow` tetap menghentikan worker.
 
 `vercel.json` menjadwalkan Cron harian pukul **08.00 WIB** (`0 1 * * *`, UTC; waktu eksekusi Hobby bisa bergeser). Cron memulai scan atau memulihkan Workflow yang berakhir sebelum antrean selesai. Ketika scan lengkap, scan harian berikutnya memeriksa pembaruan katalog. Job yang dijeda atau diblokir tidak dimulai ulang otomatis oleh Cron.
 

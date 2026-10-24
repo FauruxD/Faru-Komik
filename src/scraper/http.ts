@@ -44,7 +44,7 @@ export class HttpClient {
     this.log = options.log ?? console.log;
   }
 
-  private async request(url: string, allowMissing = false): Promise<Response> {
+  private async request(url: string, robotsRequest = false): Promise<Response> {
     for (let attempt = 0; attempt <= this.retries; attempt++) {
       const remaining = this.delay - (Date.now() - this.lastRequest);
       if (remaining > 0) await this.wait(remaining);
@@ -66,6 +66,18 @@ export class HttpClient {
           );
         await this.wait(1000 * 2 ** attempt);
         continue;
+      }
+      // RFC 9309 2.3.1.3: a 4xx robots response means rules are unavailable.
+      // This applies only to robots.txt. Data endpoints still fail on 401/403;
+      // rate limiting remains a cooldown even when requesting robots.txt.
+      if (
+        robotsRequest &&
+        response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 429
+      ) {
+        await response.body?.cancel();
+        return new Response(null, { status: response.status });
       }
       if (response.status === 401 || response.status === 403) {
         await response.body?.cancel();
@@ -89,10 +101,6 @@ export class HttpClient {
           await this.wait(1000 * 2 ** attempt);
           continue;
         }
-      }
-      if (allowMissing && [404, 410].includes(response.status)) {
-        await response.body?.cancel();
-        return new Response(null, { status: response.status });
       }
       if (
         (response.status === 429 || response.status >= 500) &&
