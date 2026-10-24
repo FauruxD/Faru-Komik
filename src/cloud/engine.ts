@@ -1,4 +1,4 @@
-import { bundleSchema } from "../data/schema";
+import { bundleSchema, type Comic } from "../data/schema";
 import { discoverCatalog } from "../scraper/catalog";
 import { type ShinigamiScraper } from "../scraper/shinigami";
 import type { CloudStore, Cursor } from "./model";
@@ -12,53 +12,39 @@ export async function processCloudWork(
 ) {
   if (cursor.phase === "catalog") {
     const imported = new Set<string>();
-    const result = await discoverCatalog(scraper, async (comics) => {
+    const saveCatalog = async (comics: Comic[], requests = 0) => {
       const fresh = comics.filter((comic) => !imported.has(comic.id));
-      if (!fresh.length) return;
-      const previous = new Map(
-        (await store.comics(fresh.map((c) => c.id))).map((row) => [
-          row.comic.id,
-          row,
-        ]),
-      );
-      const bundles = fresh.map((comic) => {
-        const old = previous.get(comic.id);
-        return bundleSchema.parse({
-          comic,
-          chapters: [],
-          chapter_list_complete:
-            !!old?.complete &&
-            old.comic.latest_chapter_number === comic.latest_chapter_number,
+      // Discovery callbacks include the accumulated catalog, not only the most
+      // recent API page. Keep each RPC within its 100-bundle transaction limit.
+      for (let index = 0; index < fresh.length; index += 100) {
+        const batch = fresh.slice(index, index + 100);
+        const previous = new Map(
+          (await store.comics(batch.map((c) => c.id))).map((row) => [
+            row.comic.id,
+            row,
+          ]),
+        );
+        const bundles = batch.map((comic) => {
+          const old = previous.get(comic.id);
+          return bundleSchema.parse({
+            comic,
+            chapters: [],
+            chapter_list_complete:
+              !!old?.complete &&
+              old.comic.latest_chapter_number === comic.latest_chapter_number,
+          });
         });
-      });
-      await store.commit(cursor, bundles, false, 1);
-      fresh.forEach((comic) => imported.add(comic.id));
-    });
+        await store.commit(cursor, bundles, false, index === 0 ? requests : 0);
+        batch.forEach((comic) => imported.add(comic.id));
+      }
+    };
+    const result = await discoverCatalog(scraper, (comics) =>
+      saveCatalog(comics, 1),
+    );
     if (!result.complete)
       throw new Error("Catalog discovery incomplete; checkpoint preserved");
     // A tiny catalog can be satisfied entirely by the first probe.
-    const remaining = result.comics.filter((comic) => !imported.has(comic.id));
-    for (let index = 0; index < remaining.length; index += 100) {
-      const comics = remaining.slice(index, index + 100);
-      const previous = new Map(
-        (await store.comics(comics.map((c) => c.id))).map((row) => [
-          row.comic.id,
-          row,
-        ]),
-      );
-      await store.commit(
-        cursor,
-        comics.map((comic) => ({
-          comic,
-          chapters: [],
-          chapter_list_complete:
-            !!previous.get(comic.id)?.complete &&
-            previous.get(comic.id)?.comic.latest_chapter_number ===
-              comic.latest_chapter_number,
-        })),
-        false,
-      );
-    }
+    await saveCatalog(result.comics);
     await store.commit(
       { phase: "chapters", comicId: null, page: 1, seen: [] },
       [],

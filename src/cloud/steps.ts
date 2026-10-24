@@ -25,7 +25,8 @@ export async function scrapeBatch(generation: string, runId: string) {
       timeoutMs: 10000,
       retries: 1,
     });
-    await http.checkWebsite();
+    // All data requests target api.shngm.io; HttpClient checks that origin's
+    // robots rules before fetching. The separate HTML site is never crawled.
     const result = await processCloudWork(
       persistentStore(generation, owner),
       new ShinigamiScraper(http),

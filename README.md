@@ -24,7 +24,7 @@ Hentikan server `npm start` sebelum membangun ulang dalam folder yang sama, lalu
 - `/baca/[id]`: gambar berurutan, navigasi chapter, pilihan latar gelap, dan lebar baca desktop.
 - `/koleksi`: bookmark dan riwayat di localStorage browser; belum ada sinkronisasi akun/perangkat.
 
-Query katalog dijalankan di Server Components dengan publishable key dan RLS baca publik. Modul database ditandai `server-only`; secret key hanya untuk importer dan worker cloud. Fetch data memakai revalidasi 60 detik. Cover menggunakan optimasi gambar Next.js; gambar chapter memakai URL sumber secara langsung dengan lazy loading, tanpa mengunduh atau menyimpan ulang gambar di Supabase Storage.
+Query katalog dijalankan di Server Components dengan publishable key dan RLS baca publik. Modul database ditandai `server-only`; secret key hanya untuk importer dan worker cloud. Fetch data memakai revalidasi 60 detik. Cover memakai Next.js Image dengan `unoptimized`: browser mengambil URL sumber langsung karena host gambar menolak optimizer Vercel. Ukuran cover tetap diatur oleh layout dan gambar di luar layar memakai lazy loading. Gambar chapter juga memakai URL sumber langsung, tanpa mengunduh atau menyimpan ulang gambar di Supabase Storage.
 
 Worker cloud menulis langsung ke Supabase, terpisah dari arsip lokal. Metadata atau chapter yang sudah ada belum tentu memiliki manifest gambar. Reader menampilkan kondisi kosong yang jelas dan tautan sumber ketika halaman belum tersedia. Arsip lokal lama hanya masuk ke database melalui import snapshot manual.
 
@@ -50,6 +50,8 @@ Jangan beri awalan `NEXT_PUBLIC_` pada key server atau secret Cron. Aktifkan **A
 Vercel Workflow menjalankan pekerjaan bertahap dan menyimpan checkpoint di tabel privat `scrape_jobs` di Supabase. Tidak ada scraping pada build atau request pembaca. Menjalankan frontend lokal juga tidak memulai worker. Komputer boleh dimatikan setelah pekerjaan dimulai di deployment produksi.
 
 Urutan pengambilan adalah discovery seluruh katalog, pelengkapan daftar chapter, lalu URL gambar seluruh chapter yang belum memiliki manifest. Worker memproses request sumber berurutan dengan jeda 1,5 detik. Setiap halaman daftar chapter dan manifest chapter dikomit atomik bersama checkpoint; upsert dan lease mencegah duplikasi atau dua worker menulis bersamaan. Satu batch mengambil maksimal 5 halaman daftar chapter atau 40 manifest; Workflow berikutnya melanjutkan checkpoint setelah 100 batch.
+
+Worker mengakses `api.shngm.io` dan memeriksa `robots.txt` pada origin API tersebut. Tidak ada crawl halaman HTML `11.shinigami.asia`; kegagalan host website tidak dipakai untuk menyimpulkan akses API. Penolakan dari API, challenge, dan larangan robots API tetap menghentikan worker.
 
 `vercel.json` menjadwalkan Cron harian pukul **08.00 WIB** (`0 1 * * *`, UTC; waktu eksekusi Hobby bisa bergeser). Cron memulai scan atau memulihkan Workflow yang berakhir sebelum antrean selesai. Ketika scan lengkap, scan harian berikutnya memeriksa pembaruan katalog. Job yang dijeda atau diblokir tidak dimulai ulang otomatis oleh Cron.
 

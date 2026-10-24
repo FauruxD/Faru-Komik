@@ -9,7 +9,7 @@ import type { CloudStore, Cursor } from "../src/cloud/model";
 import { bundleSchema, type ComicBundle } from "../src/data/schema";
 import { HttpClient } from "../src/scraper/http";
 import { ShinigamiScraper } from "../src/scraper/shinigami";
-import { fixtureBundle, sourceChapter, detail } from "./fixtures";
+import { fixtureBundle, sourceChapter, source, detail } from "./fixtures";
 
 test("cloud controls fail closed without an exact long bearer secret", () => {
   const secret = "a".repeat(40);
@@ -101,6 +101,59 @@ test("cloud steps checkpoint manifests individually and never require local file
   );
 });
 
+test("cloud catalog checks the API origin and preserves existing complete chapter lists", async () => {
+  const fixture = fixtureBundle();
+  const saved: ComicBundle[] = [];
+  const cursors: Cursor[] = [];
+  const urls: string[] = [];
+  const store: CloudStore = {
+    async comics() {
+      return [{ comic: fixture.comic, complete: true }];
+    },
+    async pendingComic() {
+      throw new Error("Chapter queue must wait for catalog completion");
+    },
+    async pendingChapters() {
+      throw new Error("Reader queue must wait for catalog completion");
+    },
+    async commit(cursor, bundles) {
+      saved.push(...bundles.map((bundle) => bundleSchema.parse(bundle)));
+      cursors.push(cursor);
+    },
+  };
+  const scraper = new ShinigamiScraper(
+    new HttpClient({
+      delayMs: 0,
+      log: () => {},
+      fetcher: async (input) => {
+        const url = new URL(String(input));
+        urls.push(url.href);
+        assert.equal(url.origin, "https://api.shngm.io");
+        if (url.pathname === "/robots.txt")
+          return new Response("", { status: 404 });
+        return Response.json({
+          retcode: 0,
+          data: [source],
+          meta: { page: 1, total_page: 1, total_record: 1 },
+          facet: { "taxonomy.Format.name": { Manhwa: 1 } },
+        });
+      },
+    }),
+  );
+  await processCloudWork(store, scraper, { phase: "catalog" });
+  assert.equal(urls[0], "https://api.shngm.io/robots.txt");
+  assert.equal(urls.length, 2);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0]?.chapter_list_complete, true);
+  assert.deepEqual(saved[0]?.chapters, []);
+  assert.deepEqual(cursors.at(-1), {
+    phase: "chapters",
+    comicId: null,
+    page: 1,
+    seen: [],
+  });
+});
+
 test("chapter-page extraction resumes at the requested page", async () => {
   const fixture = fixtureBundle();
   const urls: string[] = [];
@@ -125,6 +178,53 @@ test("chapter-page extraction resumes at the requested page", async () => {
   const page = await scraper.chapterPage(fixture.comic, 3);
   assert.deepEqual(urls, ["3"]);
   assert.equal(page.chapters[0]?.source_chapter_id, sourceChapter.chapter_id);
+});
+
+test("accumulated discovery results never exceed the database transaction limit", async () => {
+  const items = Array.from({ length: 200 }, (_, index) => ({
+    ...source,
+    manga_id: `00000000-0000-4000-8000-${index.toString().padStart(12, "0")}`,
+  }));
+  const batches: number[] = [];
+  const saved = new Set<string>();
+  const store: CloudStore = {
+    async comics() {
+      return [];
+    },
+    async pendingComic() {
+      return null;
+    },
+    async pendingChapters() {
+      return [];
+    },
+    async commit(_cursor, bundles) {
+      if (bundles.length) batches.push(bundles.length);
+      assert.ok(bundles.length <= 100);
+      bundles.forEach((bundle) => saved.add(bundle.comic.id));
+    },
+  };
+  const scraper = new ShinigamiScraper(
+    new HttpClient({
+      delayMs: 0,
+      log: () => {},
+      fetcher: async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/robots.txt")
+          return new Response("", { status: 404 });
+        return Response.json({
+          retcode: 0,
+          data: url.searchParams.has("format")
+            ? items.slice(100)
+            : items.slice(0, 100),
+          meta: { page: 1, total_page: 2, total_record: 200 },
+          facet: { "taxonomy.Format.name": { Manhwa: 200 } },
+        });
+      },
+    }),
+  );
+  await processCloudWork(store, scraper, { phase: "catalog" });
+  assert.deepEqual(batches, [100, 100]);
+  assert.equal(saved.size, 200);
 });
 
 test("cloud database lease, atomic checkpoints, resume fencing, and public denial", async () => {

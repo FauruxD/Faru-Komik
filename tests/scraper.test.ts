@@ -183,6 +183,31 @@ test("403 and robots prohibitions stop without retries or protected requests", a
   assert.equal(calls, 1);
 });
 
+test("API authorization failures stop after a successful robots check without retries", async () => {
+  for (const status of [401, 403]) {
+    const urls: string[] = [];
+    const http = new HttpClient({
+      delayMs: 0,
+      log: () => {},
+      fetcher: async (input) => {
+        const url = String(input);
+        urls.push(url);
+        return url.endsWith("/robots.txt")
+          ? new Response("User-agent: *\nAllow: /\n")
+          : new Response("Denied", { status });
+      },
+    });
+    await assert.rejects(
+      http.json("https://api.shngm.io/v1/manga/list"),
+      AccessError,
+    );
+    assert.deepEqual(urls, [
+      "https://api.shngm.io/robots.txt",
+      "https://api.shngm.io/v1/manga/list",
+    ]);
+  }
+});
+
 test("429 respects Retry-After and HTML challenges are rejected", async () => {
   const waits: number[] = [];
   let attempts = 0;

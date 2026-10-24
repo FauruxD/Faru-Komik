@@ -21,6 +21,7 @@ export function Cover({
       {src && !failed ? (
         <Image
           src={src}
+          unoptimized
           alt={`Cover ${title}`}
           fill
           sizes={sizes}
