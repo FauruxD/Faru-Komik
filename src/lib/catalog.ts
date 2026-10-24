@@ -135,11 +135,12 @@ export async function comicChapters(
   };
 }
 
-export async function firstChapter(comicId: string) {
+export async function firstReadableChapter(comicId: string) {
   const { data, error } = await database()
     .from("chapters")
     .select("id")
     .eq("comic_id", comicId)
+    .not("pages_fetched_at", "is", null)
     .order("number")
     .order("id")
     .limit(1)

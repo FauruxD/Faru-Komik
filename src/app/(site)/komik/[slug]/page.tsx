@@ -5,7 +5,7 @@ import { LinkButton } from "@cloudflare/kumo/components/button";
 import {
   getComic,
   comicChapters,
-  firstChapter,
+  firstReadableChapter,
   relatedComics,
 } from "../../../../lib/catalog";
 import {
@@ -53,7 +53,7 @@ export default async function ComicPage({ params, searchParams }: Props) {
   const ascending = values.urutan === "awal";
   const [list, startId, related] = await Promise.all([
     comicChapters(comic.id, page, ascending),
-    firstChapter(comic.id),
+    firstReadableChapter(comic.id),
     relatedComics(comic.id, comic.genres[0]),
   ]);
   const chapterUrl = (nextPage: number) =>
@@ -127,13 +127,13 @@ export default async function ComicPage({ params, searchParams }: Props) {
               disabled={!startId}
             >
               <Icon name="book" />
-              Mulai membaca
+              {startId ? "Mulai membaca" : "Halaman belum tersedia"}
             </LinkButton>
             <SaveButton comic={save} />
           </div>
           <p className="chapter-availability">
             <Icon name="book" width="16" height="16" />
-            {number(list.total)} chapter tersedia<span>·</span>Update{" "}
+            {number(list.total)} chapter terdaftar<span>·</span>Update{" "}
             {updateLabel(comic.source_updated_at)}
           </p>
         </div>
@@ -206,6 +206,11 @@ export default async function ComicPage({ params, searchParams }: Props) {
                         {chapter.title && (
                           <span className="chapter-title">{chapter.title}</span>
                         )}
+                        <span className="chapter-title">
+                          {chapter.pages_fetched_at
+                            ? "Siap dibaca"
+                            : "Halaman belum tersedia"}
+                        </span>
                       </span>
                     </span>
                     <span className="chapter-row-end">
