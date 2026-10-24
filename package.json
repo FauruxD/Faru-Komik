@@ -1,0 +1,50 @@
+{
+  "name": "komik",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "lint": "eslint .",
+    "scrape": "tsx src/cli/scrape.ts",
+    "scrape:all": "tsx src/cli/scrape-all.ts",
+    "import:supabase": "tsx src/cli/import.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run lint && npm test && npm run format:check"
+  },
+  "dependencies": {
+    "@cloudflare/kumo": "2.15.0",
+    "@phosphor-icons/react": "2.1.10",
+    "@supabase/supabase-js": "^2.118.0",
+    "@tailwindcss/postcss": "4.3.3",
+    "next": "16.4.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "robots-parser": "^3.0.1",
+    "server-only": "0.0.1",
+    "tailwindcss": "4.3.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11",
+    "@eslint/js": "9.39.5",
+    "@types/node": "^26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0"
+  }
+}
