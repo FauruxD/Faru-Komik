@@ -38,7 +38,12 @@ export async function diagnoseSource(fetcher: typeof fetch = fetch) {
   const mitigated = response.headers.get("cf-mitigated");
   const challenge =
     mitigated === "challenge" ||
-    /<title>\s*(?:Just a moment|Attention Required)/i.test(text);
+    /<title>\s*Just a moment/i.test(text) ||
+    /\/cdn-cgi\/challenge-platform\//i.test(text);
+  const denied =
+    /sorry,? you have been blocked|access denied|you are unable to access/i.test(
+      text,
+    );
   const cloudflareCode =
     text.match(/(?:error\s*(?:code)?[:\s]+)(1\d{3})\b/i)?.[1] ?? null;
   return {
@@ -53,7 +58,7 @@ export async function diagnoseSource(fetcher: typeof fetch = fetch) {
         ? "api_available"
         : challenge
           ? "browser_challenge"
-          : cloudflareCode
+          : cloudflareCode || denied
             ? "edge_access_denied"
             : contentType === "application/json"
               ? "api_error"

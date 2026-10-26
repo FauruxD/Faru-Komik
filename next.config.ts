@@ -3,7 +3,7 @@ import { withWorkflow } from "workflow/next";
 
 const config: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["robots-parser"],
+  serverExternalPackages: ["robots-parser", "impit"],
   turbopack: { root: process.cwd() },
   experimental: {
     optimizePackageImports: ["@cloudflare/kumo", "@phosphor-icons/react"],

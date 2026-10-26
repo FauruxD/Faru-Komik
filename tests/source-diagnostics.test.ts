@@ -37,3 +37,17 @@ test("source diagnostics distinguish API errors from successful public JSON resp
     assert.equal(JSON.stringify(result).includes("not returned"), false);
   }
 });
+
+test("static Cloudflare access denials are not misclassified as browser challenges", async () => {
+  const result = await diagnoseSource(
+    async () =>
+      new Response(
+        "<title>Attention Required! | Cloudflare</title><h1>Sorry, you have been blocked</h1>",
+        {
+          status: 403,
+          headers: { "content-type": "text/html", server: "cloudflare" },
+        },
+      ),
+  );
+  assert.equal(result.classification, "edge_access_denied");
+});
