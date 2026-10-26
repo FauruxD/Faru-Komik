@@ -3,7 +3,12 @@ import { z } from "zod";
 import { loadCheckpoint, saveDataset, summarize } from "../data/files.js";
 import { AccessError, HttpClient } from "../scraper/http.js";
 import { ShinigamiScraper } from "../scraper/shinigami.js";
-import { datasetPath, integerOption, reportError } from "./shared.js";
+import {
+  datasetPath,
+  integerOption,
+  reportError,
+  requireLocalScraping,
+} from "./shared.js";
 
 async function main() {
   const { values } = parseArgs({
@@ -32,6 +37,7 @@ async function main() {
 Without --refresh, existing comics are skipped. Limits are per run. No image files are downloaded.`);
     return;
   }
+  requireLocalScraping();
   const maxComics = integerOption(values["max-comics"], "max-comics", 1, 10000);
   const catalogPages = integerOption(
     values["catalog-pages"],

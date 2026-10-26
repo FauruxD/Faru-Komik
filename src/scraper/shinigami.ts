@@ -7,9 +7,9 @@ import {
   type ComicBundle,
 } from "../data/schema";
 import type { HttpClient } from "./http";
+import { WEBSITE, API, IMAGE_HOSTS } from "./source";
 
-export const WEBSITE = "https://11.shinigami.asia";
-export const API = "https://api.shngm.io";
+export { WEBSITE, API } from "./source";
 
 export interface CatalogFilter {
   format?: "manga" | "manhwa" | "manhua";
@@ -146,20 +146,17 @@ export function normalizePages(
   const base = new URL(detail.base_url);
   if (
     base.protocol !== "https:" ||
-    ![
-      "assets.shngm.id",
-      "storage.shngm.id",
-      "delivery.shngm.id",
-      "mirror1.shngm.id",
-      "mirror2.shngm.id",
-    ].includes(base.hostname)
+    !IMAGE_HOSTS.includes(base.hostname) ||
+    base.username ||
+    base.password ||
+    base.port
   ) {
     throw new Error("Unknown image host in source response");
   }
   const folder = new URL(detail.chapter.path.replace(/\/?$/, "/"), base);
   if (folder.origin !== base.origin)
     throw new Error("Image path escapes the source host");
-  const pages = detail.chapter.data.map((filename, index) => {
+  const pages = [...new Set(detail.chapter.data)].map((filename, index) => {
     if (filename.includes("/") || filename.includes("\\") || filename === "..")
       throw new Error("Invalid page filename");
     return {

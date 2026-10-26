@@ -180,13 +180,14 @@ test("chapter-page extraction resumes at the requested page", async () => {
   assert.equal(page.chapters[0]?.source_chapter_id, sourceChapter.chapter_id);
 });
 
-test("accumulated discovery results never exceed the database transaction limit", async () => {
+test("catalog pages checkpoint separately and never exceed the database transaction limit", async () => {
   const items = Array.from({ length: 200 }, (_, index) => ({
     ...source,
     manga_id: `00000000-0000-4000-8000-${index.toString().padStart(12, "0")}`,
   }));
   const batches: number[] = [];
   const saved = new Set<string>();
+  let cursor: Cursor = { phase: "catalog" };
   const store: CloudStore = {
     async comics() {
       return [];
@@ -197,7 +198,8 @@ test("accumulated discovery results never exceed the database transaction limit"
     async pendingChapters() {
       return [];
     },
-    async commit(_cursor, bundles) {
+    async commit(nextCursor, bundles) {
+      cursor = nextCursor;
       if (bundles.length) batches.push(bundles.length);
       assert.ok(bundles.length <= 100);
       bundles.forEach((bundle) => saved.add(bundle.comic.id));
@@ -222,9 +224,123 @@ test("accumulated discovery results never exceed the database transaction limit"
       },
     }),
   );
-  await processCloudWork(store, scraper, { phase: "catalog" });
+  await processCloudWork(store, scraper, cursor);
+  assert.deepEqual(batches, [100]);
+  assert.equal(cursor.phase, "catalog");
+  await processCloudWork(store, scraper, cursor);
   assert.deepEqual(batches, [100, 100]);
   assert.equal(saved.size, 200);
+  assert.equal(cursor.phase, "chapters");
+});
+
+test("a failed catalog page resumes from its durable checkpoint without repeating earlier pages", async () => {
+  const items = Array.from({ length: 3 }, (_, index) => ({
+    ...source,
+    manga_id: `00000000-0000-4000-8000-${index.toString().padStart(12, "0")}`,
+  }));
+  let cursor: Cursor = { phase: "catalog" };
+  const saved = new Set<string>();
+  const requests: string[] = [];
+  let fail = true;
+  const store: CloudStore = {
+    async comics() {
+      return [];
+    },
+    async pendingComic() {
+      return null;
+    },
+    async pendingChapters() {
+      return [];
+    },
+    async commit(next, bundles) {
+      cursor = next;
+      bundles.forEach((bundle) => saved.add(bundle.comic.id));
+    },
+  };
+  const scraper = new ShinigamiScraper(
+    new HttpClient({
+      delayMs: 0,
+      retries: 0,
+      log: () => {},
+      fetcher: async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/robots.txt")
+          return new Response("", { status: 404 });
+        const page = Number(url.searchParams.get("page"));
+        requests.push(`${url.searchParams.get("format") ?? "probe"}:${page}`);
+        if (url.searchParams.has("format") && page === 2 && fail) {
+          fail = false;
+          throw new Error("Fixture outage");
+        }
+        return Response.json({
+          retcode: 0,
+          data: [items[page - 1]],
+          meta: { page, total_page: 3, total_record: 3 },
+          facet: { "taxonomy.Format.name": { Manhwa: 3 } },
+        });
+      },
+    }),
+  );
+  await processCloudWork(store, scraper, cursor);
+  await processCloudWork(store, scraper, cursor);
+  const beforeFailure = structuredClone(cursor);
+  await assert.rejects(
+    processCloudWork(store, scraper, cursor),
+    /Network request failed/,
+  );
+  assert.deepEqual(cursor, beforeFailure);
+  await processCloudWork(store, scraper, cursor);
+  await processCloudWork(store, scraper, cursor);
+  assert.equal(cursor.phase, "chapters");
+  assert.equal(saved.size, 3);
+  assert.deepEqual(requests, [
+    "probe:1",
+    "manhwa:1",
+    "manhwa:2",
+    "manhwa:2",
+    "manhwa:3",
+  ]);
+});
+
+test("incomplete ascending and descending windows do not mark discovery complete", async () => {
+  let cursor: Cursor = { phase: "catalog" };
+  const store: CloudStore = {
+    async comics() {
+      return [];
+    },
+    async pendingComic() {
+      return null;
+    },
+    async pendingChapters() {
+      return [];
+    },
+    async commit(next) {
+      cursor = next;
+    },
+  };
+  const scraper = new ShinigamiScraper(
+    new HttpClient({
+      delayMs: 0,
+      log: () => {},
+      fetcher: async (input) =>
+        String(input).endsWith("/robots.txt")
+          ? new Response("", { status: 404 })
+          : Response.json({
+              retcode: 0,
+              data: [source],
+              meta: { page: 1, total_page: 1, total_record: 3 },
+              facet: { "taxonomy.Format.name": { Manhwa: 3 } },
+            }),
+    }),
+  );
+  await processCloudWork(store, scraper, cursor);
+  await processCloudWork(store, scraper, cursor);
+  const beforeFailure = structuredClone(cursor);
+  await assert.rejects(
+    processCloudWork(store, scraper, cursor),
+    /Catalog count incomplete/,
+  );
+  assert.deepEqual(cursor, beforeFailure);
 });
 
 test("cloud database lease, atomic checkpoints, resume fencing, and public denial", async () => {

@@ -8,7 +8,7 @@ import type { Comic, Chapter } from "../data/schema.js";
 import { discoverCatalog } from "../scraper/catalog.js";
 import { AccessError, HttpClient } from "../scraper/http.js";
 import { ShinigamiScraper } from "../scraper/shinigami.js";
-import { integerOption, reportError } from "./shared.js";
+import { integerOption, reportError, requireLocalScraping } from "./shared.js";
 
 async function main() {
   const { values } = parseArgs({
@@ -26,6 +26,7 @@ Run the same command to resume. Only one worker per directory. Ctrl+C stops afte
 Phase chapters indexes lists only; pages processes existing lists. Phase all runs every stage.`);
     return;
   }
+  requireLocalScraping();
   const phase = z
     .enum(["all", "catalog", "chapters", "pages"])
     .parse(values.phase);

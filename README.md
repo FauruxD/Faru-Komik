@@ -49,7 +49,11 @@ Jangan beri awalan `NEXT_PUBLIC_` pada key server atau secret Cron. Aktifkan **A
 
 Vercel Workflow menjalankan pekerjaan bertahap dan menyimpan checkpoint di tabel privat `scrape_jobs` di Supabase. Tidak ada scraping pada build atau request pembaca. Menjalankan frontend lokal juga tidak memulai worker. Komputer boleh dimatikan setelah pekerjaan dimulai di deployment produksi.
 
-Urutan pengambilan adalah discovery seluruh katalog, pelengkapan daftar chapter, lalu URL gambar seluruh chapter yang belum memiliki manifest. Worker memproses request sumber berurutan dengan jeda 1,5 detik. Setiap halaman daftar chapter dan manifest chapter dikomit atomik bersama checkpoint; upsert dan lease mencegah duplikasi atau dua worker menulis bersamaan. Satu batch mengambil maksimal 5 halaman daftar chapter atau 40 manifest; Workflow berikutnya melanjutkan checkpoint setelah 100 batch.
+Urutan pengambilan adalah discovery seluruh katalog, pelengkapan daftar chapter, lalu URL gambar seluruh chapter yang belum memiliki manifest. Worker memproses request sumber berurutan dengan jeda 1,5 detik. Setiap halaman katalog, halaman daftar chapter, dan manifest chapter dikomit atomik bersama checkpoint; upsert dan lease mencegah duplikasi atau dua worker menulis bersamaan. Satu batch mengambil satu halaman katalog (maksimal 100 judul), 5 halaman daftar chapter, atau 40 manifest; Workflow berikutnya melanjutkan checkpoint setelah 100 batch.
+
+Pola service dan normalisasi diadaptasi dari referensi lokal Komiku-Rest-Api, tetapi sumber tetap Shinigami. Konfigurasi origin, referer, bahasa, identitas bot, dan host gambar berada di `src/scraper/source.ts`. Request tidak menyamar sebagai browser dan tidak membawa cookie atau kredensial sumber. Reader membuang nama file gambar yang berulang dengan tetap menjaga urutan halaman.
+
+Checkpoint katalog menyimpan format, arah urutan, nomor halaman berikutnya, jumlah yang diharapkan, dan ID yang sudah ditemukan di Supabase. Setelah kegagalan, worker mengulang halaman yang gagal, bukan seluruh katalog. Jumlah unik tetap diverifikasi terhadap facet sebelum beralih ke daftar chapter; hasil parsial tidak ditandai lengkap. Checkpoint lama `{ "phase": "catalog" }` tetap didukung dan tidak memerlukan migration baru.
 
 Worker mengakses `api.shngm.io` dan memeriksa `robots.txt` pada origin API tersebut. Tidak ada crawl halaman HTML `11.shinigami.asia`; kegagalan host website tidak dipakai untuk menyimpulkan akses API. Sesuai RFC 9309, respons 4xx pada `robots.txt` berarti aturan tidak tersedia; 429 tetap menghentikan setelah retry dan error server/jaringan tidak mengizinkan pengambilan data. Respons 401/403 pada endpoint data, challenge, dan aturan `Disallow` tetap menghentikan worker.
 
@@ -71,6 +75,8 @@ Gunakan HTTPS produksi untuk kontrol. Jangan memasukkan secret ke query string, 
 Seluruh URL gambar bisa membutuhkan ruang database dan kuota Workflow/Functions yang besar. Batas 400 MB tidak menjamin semua manifest muat pada paket gratis; tidak ada peningkatan paket otomatis. Kolom `source_requests` menghitung unit pengambilan yang telah dikomit, bukan seluruh request HTTP termasuk robots dan retry. File gambar tidak diunduh.
 
 ## CLI lokal opsional (tidak dijalankan otomatis)
+
+Scraping lokal **dinonaktifkan secara default**. `npm run scrape` dan `npm run scrape:all` berhenti sebelum membuat file atau menghubungi sumber. Gunakan kontrol worker Vercel untuk pengambilan data normal. Contoh CLI di bawah hanya untuk pengembangan yang sengaja diaktifkan dengan `ALLOW_LOCAL_SCRAPING=true`; jangan mengaktifkannya jika data harus tetap berada di cloud.
 
 Gunakan Node.js 22+.
 

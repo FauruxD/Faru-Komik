@@ -5,6 +5,15 @@ for (const name of [".env.local", ".env"]) {
   if (existsSync(name)) process.loadEnvFile(name);
 }
 
+export function requireLocalScraping(
+  enabled = process.env.ALLOW_LOCAL_SCRAPING,
+): void {
+  if (enabled !== "true")
+    throw new Error(
+      "Local scraping is disabled. Use the protected scraper on your Vercel deployment; no local archive was created.",
+    );
+}
+
 export function integerOption(
   value: string,
   name: string,

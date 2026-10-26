@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { createRequire } from "node:module";
+import { API, WEBSITE, sourceHeaders } from "./source";
 
 // robots-parser is CommonJS; its declaration uses an ESM default export.
 const robotsParser = createRequire(import.meta.url)(
@@ -52,10 +53,7 @@ export class HttpClient {
       let response: Response;
       try {
         response = await this.fetcher(url, {
-          headers: {
-            "User-Agent": this.agent,
-            Accept: "application/json, text/plain;q=0.9",
-          },
+          headers: sourceHeaders(this.agent),
           signal: AbortSignal.timeout(this.timeout),
           redirect: "manual",
         });
@@ -163,7 +161,7 @@ export class HttpClient {
     const url = new URL(address);
     if (
       url.protocol !== "https:" ||
-      url.hostname !== "api.shngm.io" ||
+      url.origin !== API ||
       url.username ||
       url.password ||
       url.port
@@ -188,6 +186,6 @@ export class HttpClient {
   }
 
   async checkWebsite(): Promise<void> {
-    await this.checkRobots(new URL("https://11.shinigami.asia/"));
+    await this.checkRobots(new URL(WEBSITE));
   }
 }

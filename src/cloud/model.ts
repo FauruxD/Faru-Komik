@@ -1,8 +1,26 @@
 import { z } from "zod";
 import type { Comic, Chapter, ComicBundle } from "../data/schema";
 
+const formatCounts = z.object({
+  manga: z.number().int().nonnegative(),
+  manhwa: z.number().int().nonnegative(),
+  manhua: z.number().int().nonnegative(),
+});
+const formatIds = z.object({
+  manga: z.array(z.uuid()),
+  manhwa: z.array(z.uuid()),
+  manhua: z.array(z.uuid()),
+});
+export const catalogScanSchema = z.object({
+  expected: formatCounts,
+  seen: formatIds,
+  formatIndex: z.number().int().min(0).max(2),
+  order: z.enum(["desc", "asc"]),
+  page: z.number().int().positive(),
+});
+export type CatalogScan = z.infer<typeof catalogScanSchema>;
 export const cursorSchema = z.discriminatedUnion("phase", [
-  z.object({ phase: z.literal("catalog") }),
+  z.object({ phase: z.literal("catalog"), scan: catalogScanSchema.optional() }),
   z.object({
     phase: z.literal("chapters"),
     comicId: z.uuid().nullable(),

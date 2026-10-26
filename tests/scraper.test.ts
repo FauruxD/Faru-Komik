@@ -12,6 +12,7 @@ import {
   stableId,
 } from "../src/scraper/shinigami.js";
 import { bundleSchema } from "../src/data/schema.js";
+import { requireLocalScraping } from "../src/cli/shared.js";
 import { loadCheckpoint, readDataset, saveDataset } from "../src/data/files.js";
 import {
   at,
@@ -28,6 +29,70 @@ function json(value: unknown) {
     headers: { "content-type": "application/json" },
   });
 }
+
+test("local scraping requires explicit opt-in before creating an archive", () => {
+  assert.throws(() => requireLocalScraping(""), /Local scraping is disabled/);
+  assert.throws(
+    () => requireLocalScraping("false"),
+    /Local scraping is disabled/,
+  );
+  assert.throws(
+    () => requireLocalScraping("TRUE"),
+    /Local scraping is disabled/,
+  );
+  assert.doesNotThrow(() => requireLocalScraping("true"));
+});
+
+test("source requests use shared API context headers while identifying the scraper", async () => {
+  const received: Headers[] = [];
+  const http = new HttpClient({
+    delayMs: 0,
+    userAgent: "KomikCatalogBot/test",
+    log: () => {},
+    fetcher: async (input, init) => {
+      received.push(new Headers(init?.headers));
+      return String(input).endsWith("/robots.txt")
+        ? new Response("", { status: 404 })
+        : json({ ok: true });
+    },
+  });
+  await http.json("https://api.shngm.io/v1/manga/list");
+  for (const headers of received) {
+    assert.equal(headers.get("origin"), "https://11.shinigami.asia");
+    assert.equal(headers.get("referer"), "https://11.shinigami.asia/");
+    assert.equal(headers.get("user-agent"), "KomikCatalogBot/test");
+    assert.equal(headers.get("cookie"), null);
+    assert.equal(headers.get("authorization"), null);
+  }
+});
+
+test("reader normalization deduplicates image filenames and rejects credentialed or nonstandard hosts", () => {
+  const fixture = fixtureBundle();
+  const chapter = fixture.chapters[0]!;
+  const normalized = normalizePages(
+    {
+      ...detail,
+      chapter: { ...detail.chapter, data: ["1.webp", "1.webp", "2.webp"] },
+    },
+    chapter,
+    comicId,
+    at,
+  );
+  assert.equal(normalized.pages?.length, 2);
+  assert.deepEqual(
+    normalized.pages?.map((page) => page.position),
+    [1, 2],
+  );
+  for (const base_url of [
+    "https://user:password@assets.shngm.id/",
+    "https://assets.shngm.id:8443/",
+  ]) {
+    assert.throws(
+      () => normalizePages({ ...detail, base_url }, chapter, comicId, at),
+      /Unknown image host/,
+    );
+  }
+});
 
 test("normalization preserves decimal chapters, source identity, unicode titles, and page order", () => {
   const comic = normalizeComic({ ...source, title: "한국어" }, at);

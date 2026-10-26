@@ -1,5 +1,5 @@
-import { bundleSchema, type Comic } from "../data/schema";
-import { discoverCatalog } from "../scraper/catalog";
+import { bundleSchema } from "../data/schema";
+import { catalogPage } from "./catalog-page";
 import { type ShinigamiScraper } from "../scraper/shinigami";
 import type { CloudStore, Cursor } from "./model";
 
@@ -11,45 +11,24 @@ export async function processCloudWork(
   cursor: Cursor,
 ) {
   if (cursor.phase === "catalog") {
-    const imported = new Set<string>();
-    const saveCatalog = async (comics: Comic[], requests = 0) => {
-      const fresh = comics.filter((comic) => !imported.has(comic.id));
-      // Discovery callbacks include the accumulated catalog, not only the most
-      // recent API page. Keep each RPC within its 100-bundle transaction limit.
-      for (let index = 0; index < fresh.length; index += 100) {
-        const batch = fresh.slice(index, index + 100);
-        const previous = new Map(
-          (await store.comics(batch.map((c) => c.id))).map((row) => [
-            row.comic.id,
-            row,
-          ]),
-        );
-        const bundles = batch.map((comic) => {
-          const old = previous.get(comic.id);
-          return bundleSchema.parse({
-            comic,
-            chapters: [],
-            chapter_list_complete:
-              !!old?.complete &&
-              old.comic.latest_chapter_number === comic.latest_chapter_number,
-          });
-        });
-        await store.commit(cursor, bundles, false, index === 0 ? requests : 0);
-        batch.forEach((comic) => imported.add(comic.id));
-      }
-    };
-    const result = await discoverCatalog(scraper, (comics) =>
-      saveCatalog(comics, 1),
+    const page = await catalogPage(scraper, cursor);
+    const previous = new Map(
+      (await store.comics(page.comics.map((comic) => comic.id))).map((row) => [
+        row.comic.id,
+        row,
+      ]),
     );
-    if (!result.complete)
-      throw new Error("Catalog discovery incomplete; checkpoint preserved");
-    // A tiny catalog can be satisfied entirely by the first probe.
-    await saveCatalog(result.comics);
-    await store.commit(
-      { phase: "chapters", comicId: null, page: 1, seen: [] },
-      [],
-      true,
-    );
+    const bundles = page.comics.map((comic) => {
+      const old = previous.get(comic.id);
+      return bundleSchema.parse({
+        comic,
+        chapters: [],
+        chapter_list_complete:
+          !!old?.complete &&
+          old.comic.latest_chapter_number === comic.latest_chapter_number,
+      });
+    });
+    await store.commit(page.cursor, bundles, true, 1);
     return { done: false };
   }
   if (cursor.phase === "chapters") {
