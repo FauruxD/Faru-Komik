@@ -61,14 +61,17 @@ Worker mengakses `api.shngm.io` dan memeriksa `robots.txt` pada origin API terse
 
 API kontrol hanya menerima `Authorization: Bearer <CRON_SECRET>`:
 
-| Request                                              | Tindakan                                                          |
-| ---------------------------------------------------- | ----------------------------------------------------------------- |
-| `GET /api/scraper`                                   | Status, fase, checkpoint, dan kegagalan terakhir                  |
-| `POST /api/scraper` dengan JSON `{"action":"start"}` | Memulai atau melanjutkan checkpoint; tidak menggandakan run aktif |
-| `POST /api/scraper` dengan JSON `{"action":"pause"}` | Menjeda dan mencabut lease penulisan worker aktif                 |
-| `GET /api/cron/scrape`                               | Endpoint Cron Vercel; secret yang sama                            |
+| Request                                              | Tindakan                                                               |
+| ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| `GET /api/scraper`                                   | Status, fase, checkpoint, dan kegagalan terakhir                       |
+| `GET /api/scraper/diagnostics`                       | Bukti transport dari satu request API, tanpa payload komik atau cookie |
+| `POST /api/scraper` dengan JSON `{"action":"start"}` | Memulai atau melanjutkan checkpoint; tidak menggandakan run aktif      |
+| `POST /api/scraper` dengan JSON `{"action":"pause"}` | Menjeda dan mencabut lease penulisan worker aktif                      |
+| `GET /api/cron/scrape`                               | Endpoint Cron Vercel; secret yang sama                                 |
 
 Gunakan HTTPS produksi untuk kontrol. Jangan memasukkan secret ke query string, source Git, atau browser publik. Respons tanpa secret adalah `401`.
+
+Jika diagnostik mengembalikan `edge_access_denied` dan `server: cloudflare`, request ditolak pada lapisan akses sumber. Perubahan parser atau checkpoint tidak membuka akses tersebut. Pada uji 26 Oktober 2026, native fetch dan klien TLS/HTTP kompatibel sama-sama ditolak dengan 403 dari region Seoul dan Singapura. Worker tetap diblokir agar tidak mengulang request yang ditolak. Pengambilan baru membutuhkan akses API yang diizinkan oleh Shinigami; region produksi dikembalikan ke Seoul dan dependensi eksperimen dihapus.
 
 401/403, challenge, atau larangan robots dari sumber memblokir job. Tiga kegagalan unit beruntun menjedanya; checkpoint sukses tetap tersimpan. Batas database juga menjeda job sebelum penyimpanan habis. Selesaikan penyebabnya sebelum melanjutkan secara manual. Jika daftar chapter sumber berubah di tengah paginasi dan hitungan tidak cocok, worker berhenti dengan error, bukan menandai daftar parsial sebagai lengkap.
 
